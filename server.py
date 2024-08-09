@@ -13,6 +13,12 @@ def is_port_open(port):
     sock.close()
     return result == 0
 
+def get_streamlit_url():
+    base_url = st.get_option("server.baseUrlPath")
+    if base_url:
+        return f"https://{base_url.strip('/')}.streamlit.app"
+    return "http://localhost:8501"  # Default local URL
+
 def main():
     st.title("Streamlit Ngrok-like Service")
 
@@ -33,7 +39,8 @@ def main():
             st.error(f"No application found running on port {port}. Please make sure your application is running.")
 
     if st.session_state.port:
-        tunnel_url = f"https://{st.session_state.subdomain}-{st.secrets.streamlit_id}.streamlit.app"
+        streamlit_url = get_streamlit_url()
+        tunnel_url = f"{streamlit_url}?subdomain={st.session_state.subdomain}"
         st.write(f"Your tunnel URL: {tunnel_url}")
         st.write("Use this URL to send requests to your local application.")
 
