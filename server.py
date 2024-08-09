@@ -1,51 +1,73 @@
 import streamlit as st
-import json
-import uuid
+import requests
+import random
+import string
+import socket
 
-def generate_random_url():
-    return f"http://localhost:{str(uuid.uuid4())}"
+def generate_subdomain():
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+def is_port_open(port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    result = sock.connect_ex(('localhost', port))
+    sock.close()
+    return result == 0
+
+def get_streamlit_url():
+    base_url = st.get_option("server.baseUrlPath")
+    if base_url:
+        return f"https://{base_url.strip('/')}.streamlit.app"
+    return "http://localhost:8501"  # Default local URL
 
 def main():
-    st.title("Streamlit API Tester for Local Development")
+    st.title("Streamlit Ngrok-like Service")
 
-    st.write("""
-    This app helps you formulate API requests for testing your local server.
+    # Session state to store the subdomain and port
+    if 'subdomain' not in st.session_state:
+        st.session_state.subdomain = generate_subdomain()
+    if 'port' not in st.session_state:
+        st.session_state.port = None
 
-    How to use:
-    1. Click 'Get URL' to generate a random URL.
-    2. Use this URL to test your Node.js application.
-    3. Enter the endpoint and other details as needed.
-    """)
+    # Input for local port
+    port = st.number_input("Enter the local port of your application:", min_value=1, max_value=65535, value=8080)
 
-    # Generate random URL
-    random_url = generate_random_url()
-    st.write(f"Generated URL: {random_url}")
+    if st.button("Start Tunnel"):
+        if is_port_open(port):
+            st.session_state.port = port
+            st.success(f"Tunnel established! Use the URL below to access your application.")
+        else:
+            st.error(f"No application found running on port {port}. Please make sure your application is running.")
 
-    # Input for endpoint
-    endpoint = st.text_input("Endpoint:", "/")
+    if st.session_state.port:
+        streamlit_url = get_streamlit_url()
+        tunnel_url = f"{streamlit_url}?subdomain={st.session_state.subdomain}"
+        st.write(f"Your tunnel URL: {tunnel_url}")
+        st.write("Use this URL to send requests to your local application.")
 
-    # Full URL
-    full_url = f"{random_url.rstrip('/')}/{endpoint.lstrip('/')}"
-    st.write(f"Full URL: {full_url}")
-
-    # HTTP Method selection
-    method = st.selectbox("HTTP Method:", ["GET", "POST", "PUT", "DELETE"])
-
-    # Request body for POST/PUT
-    st.subheader("Request Body (for POST/PUT)")
-    body = st.text_area("Enter JSON body:")
-
-    # Response prettifier
-    st.subheader("Response Prettifier")
-    st.write("Paste the response from your terminal here to prettify JSON:")
-    response_text = st.text_area("Response:")
-    if response_text:
-        try:
-            prettified = json.dumps(json.loads(response_text), indent=2)
-            st.code(prettified, language="json")
-        except json.JSONDecodeError:
-            st.write("The response is not valid JSON. Displaying as plain text:")
-            st.code(response_text)
+        # Request handling
+        st.write("Enter a path to send a request to your local application:")
+        path = st.text_input("Path (e.g., /api/data):", "/")
+        method = st.selectbox("HTTP Method:", ["GET", "POST", "PUT", "DELETE"])
+        
+        if st.button("Send Request"):
+            full_url = f"http://localhost:{st.session_state.port}{path}"
+            try:
+                if method == "GET":
+                    response = requests.get(full_url)
+                elif method == "POST":
+                    response = requests.post(full_url)
+                elif method == "PUT":
+                    response = requests.put(full_url)
+                elif method == "DELETE":
+                    response = requests.delete(full_url)
+                
+                st.write("Response Status Code:", response.status_code)
+                st.write("Response Headers:")
+                st.json(dict(response.headers))
+                st.write("Response Content:")
+                st.code(response.text)
+            except requests.RequestException as e:
+                st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
