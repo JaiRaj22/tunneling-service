@@ -1,73 +1,79 @@
 import streamlit as st
 import requests
-import random
-import string
-import socket
+import json
 
-def generate_subdomain():
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-
-def is_port_open(port):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    result = sock.connect_ex(('localhost', port))
-    sock.close()
-    return result == 0
-
-def get_streamlit_url():
-    base_url = st.get_option("server.baseUrlPath")
-    if base_url:
-        return f"https://{base_url.strip('/')}.streamlit.app"
-    return "http://localhost:8501"  # Default local URL
+def parse_json_input(input_str, field_name):
+    if not input_str:
+        return {}
+    try:
+        return json.loads(input_str)
+    except json.JSONDecodeError:
+        st.error(f"Invalid JSON in {field_name}. Please check your input.")
+        return None
 
 def main():
-    st.title("Streamlit Ngrok-like Service")
+    st.title("Python Postman-like App")
 
-    # Session state to store the subdomain and port
-    if 'subdomain' not in st.session_state:
-        st.session_state.subdomain = generate_subdomain()
-    if 'port' not in st.session_state:
-        st.session_state.port = None
+    # Input for URL
+    url = st.text_input("Enter URL")
 
-    # Input for local port
-    port = st.number_input("Enter the local port of your application:", min_value=1, max_value=65535, value=8080)
+    # Select HTTP method
+    method = st.selectbox("Choose HTTP Method", ["GET", "POST", "PUT", "DELETE"])
 
-    if st.button("Start Tunnel"):
-        if is_port_open(port):
-            st.session_state.port = port
-            st.success(f"Tunnel established! Use the URL below to access your application.")
-        else:
-            st.error(f"No application found running on port {port}. Please make sure your application is running.")
+    # Input for headers
+    headers_input = st.text_area("Enter Headers (JSON format)")
 
-    if st.session_state.port:
-        streamlit_url = get_streamlit_url()
-        tunnel_url = f"{streamlit_url}?subdomain={st.session_state.subdomain}"
-        st.write(f"Your tunnel URL: {tunnel_url}")
-        st.write("Use this URL to send requests to your local application.")
+    # Input for body (for POST and PUT requests)
+    body_input = ""
+    if method in ["POST", "PUT"]:
+        body_type = st.radio("Body Type", ["None", "JSON"])
+        if body_type == "JSON":
+            body_input = st.text_area("Enter JSON Body")
 
-        # Request handling
-        st.write("Enter a path to send a request to your local application:")
-        path = st.text_input("Path (e.g., /api/data):", "/")
-        method = st.selectbox("HTTP Method:", ["GET", "POST", "PUT", "DELETE"])
-        
-        if st.button("Send Request"):
-            full_url = f"http://localhost:{st.session_state.port}{path}"
+    # Button to send request
+    if st.button("Send Request"):
+        if not url:
+            st.error("Please enter a URL.")
+            return
+
+        headers = parse_json_input(headers_input, "Headers")
+        if headers is None:
+            return
+
+        body = None
+        if method in ["POST", "PUT"] and body_type == "JSON":
+            body = parse_json_input(body_input, "Request Body")
+            if body is None:
+                return
+
+        try:
+            # Send request
+            if method == "GET":
+                response = requests.get(url, headers=headers)
+            elif method == "POST":
+                response = requests.post(url, headers=headers, json=body)
+            elif method == "PUT":
+                response = requests.put(url, headers=headers, json=body)
+            elif method == "DELETE":
+                response = requests.delete(url, headers=headers)
+
+            # Display response
+            st.subheader("Response")
+            st.write(f"Status Code: {response.status_code}")
+            st.write("Headers:")
+            st.json(dict(response.headers))
+            st.write("Content:")
+            
+            # Try to parse response as JSON, if not, display as text
             try:
-                if method == "GET":
-                    response = requests.get(full_url)
-                elif method == "POST":
-                    response = requests.post(full_url)
-                elif method == "PUT":
-                    response = requests.put(full_url)
-                elif method == "DELETE":
-                    response = requests.delete(full_url)
-                
-                st.write("Response Status Code:", response.status_code)
-                st.write("Response Headers:")
-                st.json(dict(response.headers))
-                st.write("Response Content:")
-                st.code(response.text)
-            except requests.RequestException as e:
-                st.error(f"Error: {str(e)}")
+                st.json(response.json())
+            except json.JSONDecodeError:
+                st.text(response.text)
+
+        except requests.RequestException as e:
+            st.error(f"Request error: {str(e)}")
+        except Exception as e:
+            st.error(f"An unexpected error occurred: {str(e)}")
 
 if __name__ == "__main__":
     main()
